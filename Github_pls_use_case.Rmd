@@ -1,0 +1,387 @@
+---
+title: GithHub Tutorial plsda Use case
+output: html_notebook
+---
+
+How to proceed with our plsda (PLS1=one-Y-variable) algorithm, and function calls ?
+
+The following use case as a tutorial expects to give main insights and some guidance. The code of functions can be fully deployed. Chosen data set : breast_cancer.
+
+
+```{r}
+setwd("C:/PLS1") # File directory 
+library(xlsx) # excel file in this use case
+d <-read.xlsx(file="breast-cancer-pls-da.xlsx",sheetIndex=1,header=TRUE)
+```
+
+Qualitative target is the one to be explained and predicted.
+Summary : 
+length : 699. 
+9 quantative variables["X"]
+1 qualitative ["Y target"] : "classe".
+```{r}
+summary(d)
+```
+Extraction of the target variable and transformation into dummies. function to be called : "plsda.dummies" - encoding : S3 with print overload. 
+Console output:print.dummies()
+```{r}
+plsda.dumnies <- function (X,name){
+  
+  instance <- list()
+  # renvoyer la colonne spécifiée X en tant que facteur plutôt que numérique.
+  instance$fX<- as.factor(as.vector(X))
+  # les Modalités du facteur
+  instance$levels <- levels(instance$fX)
+  # Matrice d'indicatrices
+  instance$dum <- sapply(instance$levels,function(x){ifelse(instance$fX==x,1,0)})
+  class(instance) <- "dumnies"
+  return(instance)
+}
+
+Y_dummy <- plsda.dumnies(d[,10])
+#print(object)
+
+#surcharger la méthode print pour afficher la matrice des variables indicatrices
+
+print.dumnies <- function(objet){
+  cat("dummy species ","\n")
+  dumny <- as.matrix(objet$dum)
+  print(head(dumny))
+
+}
+print.dumnies(Y_dummy)
+
+```
+Scaling of X. Function to be called : "plsda.dummies" - encoding : S3 with print overload. 
+Console output:print.scale()
+```{r}
+plsda.scale <- function(X,reduce =TRUE){
+  #vérifier si la matrice est numerique
+  X<-as.matrix(X)
+  if(typeof(X)!="double"){
+    stop("Not expected character's matrix")
+  }
+  #creation of the instance that returns reduced centered matrix. Each variable-mean and its standard deviation are collected in a list
+  instance <- list()
+  #function mean applied row per row to each X column
+  instance$mean <-apply(X,1,function(x){return(x-mean(x))})
+  #condition on reduce
+  if(reduce==TRUE){
+  #compute the coefficients of the matrix in dividing the standard deviation
+
+    instance$new_X <- apply(instance$mean,1,function(x){return(x/sd(x))})
+    instance$new_mean_col <- apply(instance$new_X,2,mean)
+    instance$new_mean_sd <- apply(instance$new_X,2,sd)
+    class(instance) <- "scale"
+    return(instance)
+ }
+} 
+
+#activation. Extraction of X
+X<-as.matrix(data[1:9])
+print(('Values before scaling : cf.print(head(X))'))
+print(head(X))
+X_scale <-plsda.scale(X,reduce=TRUE)
+
+
+#Overload of the print method
+
+print.scale <- function(objet){
+  cat("New column mean (should be around 0)",":")
+  new_mean<-as.matrix(objet$new_mean_col)
+  print(new_mean)
+  cat("New column standard deviation (must be 1)",":")
+  new_st<-as.matrix(objet$new_mean_sd)
+  print(new_st)
+  cat("New values after scaling processing ",":")
+  new_x <- objet$new_X
+  print(head(new_x))
+
+}
+
+#print(object)
+print.scale(X_scale)
+```
+Sample split into data_train/Test. Function to be called : "pls_split_sample" - encoding : S3 with print overload. 
+Output function to call:print.split()
+```{r}
+#Class S3 split function
+plsda.split_sample<-function(data,prop.train){
+
+  # controle de prop.train
+  if(prop.train>1 | prop.train<0){
+    stop("Proportion non comprise entre 0 et 1")
+  }
+  #ok - on peut y aller
+  n <- nrow(data)
+  #make this example reproducible
+  set.seed(1)
+  # Selection des indices des individus de l'échantillon d'apprentisage
+  index <- sample(1:n, size = n*prop.train ,replace = FALSE)
+  #création de l'instance
+  instance <- list()
+  #echantillon d'apprentissage
+  instance$train <- data[index,]
+  #taille de l'échantillon d'apprentissage
+  instance$train_size <- nrow( instance$train)
+  #echantillon de test
+  instance$test<- data[-index,]
+  #taille de l'échantillon test
+  instance$test_size <- nrow(instance$test)
+  class(instance) <- "split"
+  return(instance)
+
+}
+#example : split 0.60/0.40
+train_test <- plsda.split_sample(d,prop.train=0.60)
+
+
+#surcharge de la méthode print de manière à ce qu’elle affiche l'échantillon test et l'échantillon train
+print.split <- function(objet){
+  #Train sample display
+  cat("train :")
+  train <-  nrow(objet$train)
+  print(train)
+
+  #Test sample display
+  cat("test:")
+  test <- nrow(objet$test)
+  print(test)
+  
+}
+#activation
+print.split(train_test)
+```
+```{r}
+#verification
+breast.train <-train_test$train
+print(head(breast.train))
+```
+
+Output checking : A graph to visualize the spreading of the individuals from breast.train on the two last variables:
+This graph is also available on our Shiny Dashboard
+```{r}
+library(ggplot2)
+spread=ggplot() + 
+ geom_text(data=breast.train, aes(x = ucellsize, y = normnucl, label = rownames(breast.train)), col = 'darkred') +
+ geom_segment(data=breast.train, aes(x = 0, y = 0, xend = ucellsize, yend = normnucl), arrow=arrow(length=unit(0.2,"cm")),alpha = 0.75, color = 'blue')
+print(spread)
+```
+Now, let's proceed to the fit. Function to be called : "plsda.fit" - encoding : S3 with print overload. 
+Output function to call:print.split()
+```{r}
+
+ plsda.fit<-function(formula, data, ncomp = 2){
+  
+   #getting X et Y
+  X <- model.matrix(formula, data = data)
+  X <- X[,-1] #removal of the intercept
+  Y <- model.response(model.frame(formula, data = data))
+  Y <- as.factor(as.vector(Y))
+  
+  
+  ## Check Y input
+# Check if response variable is a factor (categorical variable)
+check_Y<-function(Y){
+  if (is.factor(Y)==FALSE){
+    stop("The target variable must be a factor")
+}
+# Check if there is no missing values in target variable
+  if (length(complete.cases(Y)[complete.cases(Y)])!= length(Y)){
+    stop("No missing values allowed in target variable")
+}
+# Check if response variable contains at least 2 levels
+  if(nlevels(Y)<2){
+    stop("The response variable must contain at least 2 levels")
+  }
+}
+  
+  #Extraction of the target variable name
+  Xname <- colnames(X)
+  Yname <- intersect(all.vars(formula)[1],colnames(data))
+  
+  #calculation of Xmeans
+  Xmeans <- colMeans(X)
+    
+  #definition of n (nb of observations), p (nb of explanatory variables), q (nb of modalities)
+  n <- nrow(X)
+  p <- ncol(X)
+  q <- nlevels(Y)
+  
+   #getting the Y modality matrix 
+  Yb <- dummy_cols(Y) #can be proceeded with fastDummies package or with our Y_dummy S3+ function
+  Yb <- Yb[,-1]
+  colnames(Yb) <- levels(Y)
+  
+  #scaling X and Y
+  Xk <- scale(X)
+  Yk <- as.numeric(as.vector(Yb))
+  
+  
+  #instanciation des matrics weight, scores et loading de X et Y
+  Xweights <- matrix(0, p, ncomp) 
+  Yweights <- matrix(0, q, ncomp) 
+  Xscores <- matrix(0, n, ncomp)
+  Yscores <- matrix(0, n, ncomp)
+  Xloadings <- matrix(0, p, ncomp) #positioning of the explanatory variables on the factorial plan
+  Yloadings <- matrix(0, q, ncomp) #positioning of the modalities 
+  
+  u <- Yb[,1]
+  
+  #boucle for afin de remplir les matrices précédentes
+  for (i in 1:ncomp){
+    Wold <- rep(1,p)
+    n_iter <- 1
+    repeat{
+      W <- t(Xk)%*%u/sum(u^2)
+      W <- W/sqrt(sum(W^2))
+      t <- Xk%*%W
+      q <- t(Yk)%*%t/sum(t^2)
+      u <- Yk%*%q/sum(q^2)
+      Wdiff <- W-Wold
+      if(sum(Wdiff^2) < 1e-10 | n_iter == 500){break}
+      Wold <- W
+      n_iter <- n_iter+1
+    }
+    t <- Xk%*%W
+    u <- Yk%*%q/sum(q^2)
+    Xl <- t(Xk)%*%t/sum(t^2)
+    Xk <- Xk-t%*%t(Xl)
+    Yl <- t(Yk)%*%t/sum(t^2)
+    Yk <- Yk-t%*%t(Yl)
+    
+    Xweights[, i] <- W #Weights of X
+    Yweights[, i] <- q #Weights of Y
+    Xscores[, i] <- t
+    Yscores[, i] <- u
+    Xloadings[, i] <- Xl
+    Yloadings[, i] <- Yl
+  }
+
+  Xrotations <- Xweights%*%solve(t(Xloadings)%*%Xweights)
+  coef <- Xrotations%*%t(Yloadings)
+  coef <- coef*sapply(Yb, sd)
+  intercept <- colMeans(Yb)
+  intercept <- colMeans(Yb)
+  
+  #Tables names
+  compnames <- paste0("Comp.", 1:ncomp)
+  
+  rownames(Xweights) <- Xname
+  colnames(Xweights) <- compnames
+  rownames(Yweights) <- colnames(Yb)
+  colnames(Yweights) <- compnames 
+  rownames(Xscores) <- rownames(X)
+  colnames(Xscores) <- compnames
+  rownames(Yscores) <- rownames(Yb)
+  colnames(Yscores) <- compnames
+  rownames(Xloadings) <- Xname
+  colnames(Xloadings) <- compnames
+  rownames(Yloadings) <- colnames (Yb)
+  colnames(Yloadings) <- compnames
+  rownames(coef) <- Xname
+  colnames(coef) <- colnames(Yb)
+  
+  # Object definition
+  objet <- list(
+    "X" = X,
+    "Y" = Yb,
+    "Xname" = Xname,
+    "Yname" = Yname,
+    "modalities" = levels(Y),
+    "Xmeans" = Xmeans,
+    "Xweights" = Xweights,
+    "Yweigths" = Yweights,
+    "Xscores" = Xscores,
+    "Yscores" = Yscores,
+    "Xloadings" = Xloadings,
+    "Yloadings" = Yloadings,
+    "coef" = coef,
+    "intercept" = intercept,
+    "ncomp" = ncomp,
+    "n_iter" = n_iter
+  )
+  class(objet)<-"PLSDA"
+  return(objet)
+}
+#Classification function
+print.classi <- function(objetPLSDA){
+  classification <- rbind(objetPLSDA$coef, objetPLSDA$intercept)
+  #rownames(classification[1:p,]) <- objetPLSDA$Xname 
+  
+  cat("classification","\n")
+  print(classification)
+}
+
+
+#Example:activation with ncomp=2
+
+
+fit1<-plsda.fit(classe~.,breast.train,ncomp=2)
+print(fit1)
+```
+some examples to select only a given attribute:
+```{r}
+class
+```
+
+
+```{r}
+print(fit1$intercept)
+print(fit1$Xloadings)
+print(fit1$Yloadings)
+```
+
+Now, let’s proceed to the predict
+```{r}
+plsda.predict <- function(objetPLSDA, newdata, type = "class"){
+  if (class(objetPLSDA) != "PLSDA") {
+    stop("Objet_PLSDA must be a PLSDA class Object")
+  }
+  
+  X <- apply(newdata, 1, function(x) x - colMeans(objetPLSDA$X))
+  X <- X/apply(objetPLSDA$X,2, sd)
+  
+  Ypred <- t(X) %*% objetPLSDA$coef
+  Ypred <- Ypred + colMeans(objetPLSDA$Y)
+  
+  
+  Yexp <- apply(Ypred,1, exp)
+  Ysoftmax <- t(Yexp/colSums(Yexp)) #softmax calculs
+  
+  if (type == "posterior"){
+    objet1 <- list(
+      "Ysoftmax"=Ysoftmax,
+      "Ypred"=Ypred
+    )
+    return(objet1)
+  }
+  else if (type == "class"){
+    pred <- apply(Ysoftmax,1,which.max) # prob max per line
+    classYpred <- objetPLSDA$modalities[pred] # name of the class
+    objet2 <- list(
+      "predclass"=as.factor(classYpred),
+      "Ypred"=Ypred
+    )
+    
+    return(objet2)
+  }
+}
+#Function activation
+#pls <- plsda.fit(Species~., data = iris, ncomp = 2)
+#plsda.predict(pls, newdata = iris[,1:4], type = "class")
+```
+
+
+```
+
+
+
+```
+
+
+
+
+
+ 
+```
