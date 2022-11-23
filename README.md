@@ -5,7 +5,7 @@
 
 * Descriptive and Explanatory Graphs with RShiny Dashboard
 
-* A detailed tutorial (wiki - attached)
+* A detailed tutorial (cf.Wiki in the middle of Github-project navigation bar, at the top of the screen)
 
 **Partial Least Squares(PLS) in a few bullet-points **
 
