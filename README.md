@@ -31,7 +31,7 @@ During the modeling process, the PLS regression will construct the series of fac
 **You can directly import our package for R from GitHub or by downloading the attached package**
 ```{r}
 library(devtools)
-install_github("HugoUrba/PLS-DA-projet-R", force=T)
+install_github('https://github.com/HugoUrba/PLS-DA-projet-R.git')
 library(PLS)
 ```
 
